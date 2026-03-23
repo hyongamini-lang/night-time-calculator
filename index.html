@@ -132,6 +132,42 @@ main {
   width: 100%;
   max-width: 100%;
 }
+    /* iPhone Safari fix for date/time inputs */
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"] {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 14px 16px;
+  margin: 0;
+  border-radius: 16px;
+}
+
+/* Prevent internal Safari date/time controls from forcing extra width */
+input[type="date"]::-webkit-date-and-time-value,
+input[type="time"]::-webkit-date-and-time-value,
+input[type="datetime-local"]::-webkit-date-and-time-value {
+  text-align: center;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  margin: 0;
+}
+
+/* If these fields are inside flex/grid containers */
+.form-group,
+.field,
+.input-row,
+.input-wrap {
+  min-width: 0;
+}
     </style>
 </head>
 
