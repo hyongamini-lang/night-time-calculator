@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FAA Night Time Calculator (Civil Twilight)</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0 auto; padding: 24px; padding-left: calc(24px + env(safe-area-inset-left)); padding-right: calc(24px + env(safe-area-inset-right)); padding-top: calc(24px + env(safe-area-inset-top)); padding-bottom: calc(24px + env(safe-area-inset-bottom)); line-height: 1.45; max-width: 980px; }
+    h1 { margin: 0 0 8px 0; }
+    h2 { margin: 0 0 10px 0; }
+    .muted { color: #666; font-size: 13px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .card { border: 1px solid rgba(127,127,127,.25); border-radius: 14px; padding: 16px; margin-top: 14px; }
+    label { display: block; font-weight: 650; margin-bottom: 6px; }
+    input, select, button { width: 100%; padding: 10px; border-radius: 12px; border: 1px solid rgba(127,127,127,.35); font-size: 14px; }
+    input[type="time"] { padding: 8px 10px; }
+    button { cursor: pointer; font-weight: 750; }
+    .row { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+    .row > * { flex: 1 1 180px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .pill { display:inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid rgba(127,127,127,.35); font-size: 12px; margin-left: 8px; }
+    .ok { color: #0a7; font-weight: 750; }
+    .warn { color: #b60; font-weight: 750; }
+    .err { color: #c33; font-weight: 750; }
+    .small { font-size: 12px; }
+    .kpi { display:flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+    .kpi > div { border: 1px solid rgba(127,127,127,.25); border-radius: 14px; padding: 12px; flex: 1 1 260px; min-width: 0; }
+    .kpi .v { font-size: 24px; font-weight: 800; margin-top: 6px; }
+    details { margin-top: 10px; }
+    .hint { margin-top: 10px; }
+    .hidden { display:none; }
+    .inline { display:inline-flex; gap:8px; align-items:center; }
+  
+    /* Responsive layout */
+    @media (max-width: 820px) {
+      body { padding: 16px; padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right));
+             padding-top: calc(16px + env(safe-area-inset-top)); padding-bottom: calc(16px + env(safe-area-inset-bottom)); }
+      .grid { grid-template-columns: 1fr; }
+      .row > * { flex: 1 1 100%; }
+      .kpi { gap: 10px; }
+    }
+    @media (max-width: 420px) {
+      body { padding: 12px; padding-left: calc(12px + env(safe-area-inset-left)); padding-right: calc(12px + env(safe-area-inset-right));
+             padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+      input, select, button { font-size: 16px; } /* avoid iOS zoom on focus */
+      .kpi .v { font-size: 22px; }
+    }
+    </style>
+</head>
+
+<body>
+  <h1>FAA Night Time Calculator <span class="pill">Civil Twilight</span></h1>
+  <div class="muted">
+    Enter <b>FROM/TO airport code (ICAO or IATA)</b> and <b>UTC date + UTC time</b>.
+    The calculator estimates FAA loggable night time by sampling along the great-circle route and counting time when
+    <b>Sun altitude ≤ −6°</b>.
+  </div>
+
+  <!-- INPUTS (top) -->
+  <div class="card">
+    <h2>Inputs</h2>
+
+    <div class="muted small" id="dbStatus" style="margin:-4px 0 10px 0;">
+      Airport database: not loaded yet. Press <b>Calculate</b> to load automatically.
+    </div>
+
+    <div class="grid">
+      <div>
+        <label>FROM (ICAO / IATA)</label>
+        <input id="fromCode" placeholder="e.g., RKPK or PUS" value="RKPK" class="mono" />
+        <div id="fromInfo" class="muted small"></div>
+      </div>
+
+      <div>
+        <label>TO (ICAO / IATA)</label>
+        <input id="toCode" placeholder="e.g., RCTP or TPE" value="RCTP" class="mono" />
+        <div id="toInfo" class="muted small"></div>
+      </div>
+
+      <div>
+        <label>OUT Date (UTC)</label>
+        <input id="outDate" type="date" />
+      </div>
+
+      <div>
+        <label>OUT Time (UTC)</label>
+        <input id="outTime" type="time" step="60" value="09:41" class="mono" />
+      </div>
+
+      <div>
+        <label>IN Date (UTC)</label>
+        <input id="inDate" type="date" />
+        <div class="muted small">Optional: if empty, IN date defaults to OUT date; if IN ≤ OUT, it auto-adds +1 day.</div>
+      </div>
+
+      <div>
+        <label>IN Time (UTC)</label>
+        <input id="inTime" type="time" step="60" value="12:20" class="mono" />
+      </div>
+    </div>
+
+    <div class="hint muted small">
+      Tip: You can mix ICAO/IATA (e.g., <span class="mono">RKPK → TPE</span>). For best accuracy, this tool uses a fixed <b>1-minute</b> sampling step.
+    </div>
+
+    <div class="row" style="margin-top: 12px;">
+      <button id="btnSwap">Swap</button>
+      <button id="btnToday">Use today's UTC date</button>
+      <button id="btnCalc">Calculate</button>
+    </div>
+
+    <div style="margin-top: 10px;">
+      <label class="inline muted small">
+        <input type="checkbox" id="toggleManual" style="width:auto;margin:0;" />
+        Manual lat/lon override (optional)
+      </label>
+
+      <div id="manualBox" class="card hidden" style="margin-top:10px;">
+        <div class="muted small" style="margin-bottom:10px;">
+          Use this only if an airport cannot be resolved from the database or if you want to override coordinates.
+          Coordinates are decimal degrees (lon positive east).
+        </div>
+
+        <div class="grid">
+          <div>
+            <label>FROM latitude</label>
+            <input id="fromLat" placeholder="e.g., 35.1795" class="mono" />
+          </div>
+          <div>
+            <label>FROM longitude</label>
+            <input id="fromLon" placeholder="e.g., 128.9380" class="mono" />
+          </div>
+          <div>
+            <label>TO latitude</label>
+            <input id="toLat" placeholder="e.g., 25.0777" class="mono" />
+          </div>
+          <div>
+            <label>TO longitude</label>
+            <input id="toLon" placeholder="e.g., 121.2330" class="mono" />
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <button id="btnRecalcManual">Recalculate (use manual coords)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULT -->
+  <div class="card">
+    <h2>Result</h2>
+    <div id="status" class="muted"></div>
+
+    <div class="row" style="margin-top:8px;">
+      <label class="muted small" style="display:flex;align-items:center;gap:8px;max-width:280px;">
+        <input type="checkbox" id="showDecimal" style="width:auto;margin:0;" />
+        Show decimal hours
+      </label>
+    </div>
+
+    <div class="kpi">
+      <div>
+        <div class="muted small">Block time</div>
+        <div id="kpiBlock" class="v mono">—</div>
+        <div id="kpiBlock2" class="muted small mono" style="display:none;"></div>
+      </div>
+      <div>
+        <div class="muted small">FAA night time (civil twilight)</div>
+        <div id="kpiNight" class="v mono">—</div>
+        <div id="kpiNight2" class="muted small mono" style="display:none;"></div>
+      </div>
+    </div>
+
+    <details>
+      <summary class="mono">Show calculation details</summary>
+      <pre id="details" class="mono" style="white-space: pre-wrap; margin-top:10px;"></pre>
+    </details>
+  </div>
+
+<script>
+  // Fixed sampling step (minutes). Per your preference: finer & slower.
+  const FIXED_STEP_MIN = 1;
+
+  // Airport DB: auto lookup by ICAO or IATA
+  // Source: mwgg/Airports airports.json (ICAO keys)
+  const AIRPORT_DB_URLS = [
+    "https://cdn.jsdelivr.net/gh/mwgg/Airports@master/airports.json",
+    "https://raw.githubusercontent.com/mwgg/Airports/master/airports.json"
+  ];
+
+  let dbLoaded = false;
+  let dbIcao = new Map(); // ICAO -> record
+  let dbIata = new Map(); // IATA -> record (first match)
+
+  function setDbStatus(msg, cls="muted") {
+    const el = document.getElementById("dbStatus");
+    el.textContent = msg;
+    el.className = cls + " small";
+  }
+
+  async function loadAirportDB() {
+    if (dbLoaded) return;
+    setDbStatus("Airport database: loading…", "muted");
+    let lastErr = null;
+
+    for (const url of AIRPORT_DB_URLS) {
+      try {
+        const resp = await fetch(url, { cache: "force-cache" });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+
+        dbIcao = new Map();
+        dbIata = new Map();
+        for (const [icaoKey, rec] of Object.entries(json)) {
+          if (!rec) continue;
+          const icao = String(rec.icao || icaoKey || "").trim().toUpperCase();
+          const iata = String(rec.iata || "").trim().toUpperCase();
+          const lat = Number(rec.lat);
+          const lon = Number(rec.lon);
+          if (!icao || !Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+          const normalized = {
+            icao,
+            iata: iata || "",
+            name: rec.name || "",
+            city: rec.city || "",
+            country: rec.country || "",
+            tz: rec.tz || "",
+            lat,
+            lon
+          };
+
+          dbIcao.set(icao, normalized);
+          if (iata && !dbIata.has(iata)) dbIata.set(iata, normalized);
+        }
+
+        dbLoaded = true;
+        setDbStatus(`Airport database: loaded (ICAO ${dbIcao.size.toLocaleString()}, IATA ${dbIata.size.toLocaleString()}) ✅`, "ok");
+        return;
+
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    setDbStatus(`Airport database: failed to load. You can still use manual lat/lon. (${lastErr?.message || lastErr})`, "err");
+  }
+
+  function resolveAirport(code) {
+    const c = String(code || "").trim().toUpperCase();
+    if (!c) return null;
+    if (dbLoaded) {
+      if (dbIcao.has(c)) return { rec: dbIcao.get(c), matched: "ICAO" };
+      if (dbIata.has(c)) return { rec: dbIata.get(c), matched: "IATA" };
+    }
+    return null;
+  }
+
+  function renderAirportInfo(which, res) {
+    const el = document.getElementById(which + "Info");
+    if (!res) {
+      el.textContent = dbLoaded ? "Not found in DB. Use manual lat/lon if needed." : "DB not loaded yet (it loads automatically on Calculate).";
+      el.className = "muted small";
+      return;
+    }
+    const r = res.rec;
+    const parts = [
+      `${res.matched} match`,
+      `ICAO=${r.icao}`,
+      r.iata ? `IATA=${r.iata}` : "",
+      r.name ? `${r.name}` : "",
+      r.city ? `(${r.city})` : "",
+      `lat=${r.lat.toFixed(4)}, lon=${r.lon.toFixed(4)}`
+    ].filter(Boolean);
+    el.textContent = parts.join(" · ");
+    el.className = "muted small";
+  }
+
+  // Parse input date/time as UTC Date
+  function parseUtcDateTime(dateStr, timeStr) {
+    if (!dateStr || !timeStr) throw new Error("Please provide UTC date + UTC time.");
+    const [yy, mm, dd] = dateStr.split("-").map(Number);
+    const [hh, mi] = timeStr.split(":").map(Number);
+    if (![yy, mm, dd, hh, mi].every(Number.isFinite)) throw new Error("Invalid date/time format.");
+    return new Date(Date.UTC(yy, mm - 1, dd, hh, mi, 0));
+  }
+
+  // Great-circle interpolation (slerp)
+  function interpolateGreatCircle(lat1, lon1, lat2, lon2, f) {
+    if (f <= 0) return { lat: lat1, lon: lon1 };
+    if (f >= 1) return { lat: lat2, lon: lon2 };
+
+    const p1 = latLonToCartesian(lat1, lon1);
+    const p2 = latLonToCartesian(lat2, lon2);
+
+    let dot = p1.x*p2.x + p1.y*p2.y + p1.z*p2.z;
+    dot = Math.max(-1, Math.min(1, dot));
+    const omega = Math.acos(dot);
+    if (Math.abs(omega) < 1e-12) return { lat: lat1, lon: lon1 };
+
+    const sinOmega = Math.sin(omega);
+    const a = Math.sin((1 - f) * omega) / sinOmega;
+    const b = Math.sin(f * omega) / sinOmega;
+
+    const x = a*p1.x + b*p2.x;
+    const y = a*p1.y + b*p2.y;
+    const z = a*p1.z + b*p2.z;
+
+    return cartesianToLatLon(x, y, z);
+  }
+
+  function latLonToCartesian(lat, lon) {
+    const latR = deg2rad(lat);
+    const lonR = deg2rad(lon);
+    return { x: Math.cos(latR)*Math.cos(lonR), y: Math.cos(latR)*Math.sin(lonR), z: Math.sin(latR) };
+  }
+
+  function cartesianToLatLon(x, y, z) {
+    const hyp = Math.sqrt(x*x + y*y);
+    return { lat: rad2deg(Math.atan2(z, hyp)), lon: rad2deg(Math.atan2(y, x)) };
+  }
+
+  // Solar altitude (NOAA-style approximation)
+  function solarAltitudeDegrees(utcMs, lat, lon) {
+    const jd = utcMs / 86400000 + 2440587.5;
+    const T = (jd - 2451545.0) / 36525.0;
+
+    const L0 = norm360(280.46646 + T*(36000.76983 + 0.0003032*T));
+    const M  = norm360(357.52911 + T*(35999.05029 - 0.0001537*T));
+    const e  = 0.016708634 - T*(0.000042037 + 0.0000001267*T);
+
+    const Mrad = deg2rad(M);
+    const C =
+      Math.sin(Mrad) * (1.914602 - T*(0.004817 + 0.000014*T)) +
+      Math.sin(2*Mrad) * (0.019993 - 0.000101*T) +
+      Math.sin(3*Mrad) * 0.000289;
+
+    const trueLong = L0 + C;
+    const omega = 125.04 - 1934.136*T;
+    const lambda = trueLong - 0.00569 - 0.00478*Math.sin(deg2rad(omega));
+
+    const seconds = 21.448 - T*(46.815 + T*(0.00059 - T*0.001813));
+    const epsilon0 = 23 + (26 + seconds/60)/60;
+    const epsilon = epsilon0 + 0.00256*Math.cos(deg2rad(omega));
+
+    const epsilonRad = deg2rad(epsilon);
+    const L0rad = deg2rad(L0);
+    const decl = Math.asin(Math.sin(epsilonRad)*Math.sin(deg2rad(lambda)));
+
+    const y = Math.tan(epsilonRad/2);
+    const y2 = y*y;
+
+    const eqTime =
+      4 * rad2deg(
+        y2*Math.sin(2*L0rad) -
+        2*e*Math.sin(Mrad) +
+        4*e*y2*Math.sin(Mrad)*Math.cos(2*L0rad) -
+        0.5*y2*y2*Math.sin(4*L0rad) -
+        1.25*e*e*Math.sin(2*Mrad)
+      );
+
+    const d = new Date(utcMs);
+    const minutesUTC = d.getUTCHours()*60 + d.getUTCMinutes() + d.getUTCSeconds()/60;
+
+    let trueSolarTime = minutesUTC + eqTime + 4*lon;
+    trueSolarTime = ((trueSolarTime % 1440) + 1440) % 1440;
+
+    let hourAngle = trueSolarTime/4 - 180;
+    if (hourAngle < -180) hourAngle += 360;
+
+    const latRad = deg2rad(lat);
+    const haRad = deg2rad(hourAngle);
+
+    const cosZen =
+      Math.sin(latRad)*Math.sin(decl) +
+      Math.cos(latRad)*Math.cos(decl)*Math.cos(haRad);
+
+    const zenith = Math.acos(Math.max(-1, Math.min(1, cosZen)));
+    return 90 - rad2deg(zenith);
+  }
+
+  // FAA night minutes (civil twilight): Sun altitude <= -6°
+  function calcNightMinutesCivilTwilight(outDT, inDT, from, to, stepMin) {
+    let startMs = outDT.getTime();
+    let endMs = inDT.getTime();
+    if (endMs <= startMs) endMs += 24*60*60*1000;
+
+    const totalMs = endMs - startMs;
+    if (totalMs <= 0) throw new Error("Invalid OUT/IN interval.");
+
+    const stepMs = Math.max(1, stepMin) * 60 * 1000;
+    let nightMin = 0;
+
+    for (let segStart = startMs; segStart < endMs; segStart += stepMs) {
+      const segEnd = Math.min(segStart + stepMs, endMs);
+      const midMs = (segStart + segEnd) / 2;
+      const f = (midMs - startMs) / totalMs;
+
+      const pos = (from.icao === to.icao)
+        ? { lat: from.lat, lon: from.lon }
+        : interpolateGreatCircle(from.lat, from.lon, to.lat, to.lon, f);
+
+      const alt = solarAltitudeDegrees(midMs, pos.lat, pos.lon);
+      if (alt <= -6) nightMin += (segEnd - segStart) / 60000;
+    }
+
+    return { nightMin, totalMin: totalMs/60000 };
+  }
+
+  // UI helpers
+  function minutesToHHMM(mins) {
+    const m = Math.max(0, Math.round(mins));
+    const hh = Math.floor(m / 60);
+    const mm = m % 60;
+    return `${hh}:${String(mm).padStart(2, "0")}`;
+  }
+
+  function setStatus(msg, cls="muted") {
+    const el = document.getElementById("status");
+    el.textContent = msg;
+    el.className = cls;
+  }
+
+  function updateDecimalVisibility() {
+    const show = document.getElementById("showDecimal")?.checked;
+    const a = document.getElementById("kpiBlock2");
+    const b = document.getElementById("kpiNight2");
+    if (a) a.style.display = show ? "" : "none";
+    if (b) b.style.display = show ? "" : "none";
+  }
+
+  // math utils
+  function deg2rad(d){ return d*Math.PI/180; }
+  function rad2deg(r){ return r*180/Math.PI; }
+  function norm360(x){ return ((x % 360) + 360) % 360; }
+
+  function getManualCoords() {
+    const enabled = document.getElementById("toggleManual")?.checked;
+    if (!enabled) return { enabled: false };
+
+    const fromLat = Number(document.getElementById("fromLat").value);
+    const fromLon = Number(document.getElementById("fromLon").value);
+    const toLat = Number(document.getElementById("toLat").value);
+    const toLon = Number(document.getElementById("toLon").value);
+
+    return {
+      enabled: true,
+      fromOk: Number.isFinite(fromLat) && Number.isFinite(fromLon),
+      toOk: Number.isFinite(toLat) && Number.isFinite(toLon),
+      from: { lat: fromLat, lon: fromLon, icao: "FROM_MANUAL" },
+      to:   { lat: toLat, lon: toLon, icao: "TO_MANUAL" }
+    };
+  }
+
+  function pickCoords(fromCode, toCode, forceManual=false) {
+    const manual = getManualCoords();
+
+    const fromRes = resolveAirport(fromCode);
+    const toRes = resolveAirport(toCode);
+
+    let from = null, to = null;
+
+    if (forceManual) {
+      if (!manual.enabled || !manual.fromOk || !manual.toOk) {
+        throw new Error("Manual override is enabled, but lat/lon fields are incomplete.");
+      }
+      from = manual.from;
+      to = manual.to;
+      return { from, to, fromRes: null, toRes: null, mode: "Manual lat/lon" };
+    }
+
+    // If manual override is enabled and a side is filled, use it for that side; otherwise use DB.
+    if (manual.enabled && manual.fromOk) from = manual.from;
+    else if (fromRes) from = { ...fromRes.rec };
+
+    if (manual.enabled && manual.toOk) to = manual.to;
+    else if (toRes) to = { ...toRes.rec };
+
+    if (!from) throw new Error("FROM airport not found (and no manual lat/lon provided).");
+    if (!to) throw new Error("TO airport not found (and no manual lat/lon provided).");
+
+    from.icao = from.icao || fromRes?.rec?.icao || "FROM";
+    to.icao = to.icao || toRes?.rec?.icao || "TO";
+
+    const mode = manual.enabled ? "DB + manual overrides" : "DB";
+    return { from, to, fromRes, toRes, mode };
+  }
+
+  async function calculate(forceManual=false) {
+    // Always auto-load DB before calculating (unless user uses manual-only).
+    if (!dbLoaded && !forceManual) await loadAirportDB();
+    if (!dbLoaded && forceManual) {
+      // still try to load to provide info if possible, but do not fail if blocked
+      try { await loadAirportDB(); } catch {}
+    }
+
+    const fromCode = document.getElementById("fromCode").value.trim().toUpperCase();
+    const toCode = document.getElementById("toCode").value.trim().toUpperCase();
+
+    const outDate = document.getElementById("outDate").value;
+    const outTime = document.getElementById("outTime").value;
+    const inDate = document.getElementById("inDate").value;
+    const inTime = document.getElementById("inTime").value;
+
+    const outDT = parseUtcDateTime(outDate, outTime);
+
+    let inDT;
+    if (inDate) {
+      inDT = parseUtcDateTime(inDate, inTime);
+    } else {
+      inDT = parseUtcDateTime(outDate, inTime);
+      if (inDT.getTime() <= outDT.getTime()) inDT = new Date(inDT.getTime() + 24*60*60*1000);
+    }
+
+    const { from, to, fromRes, toRes, mode } = pickCoords(fromCode, toCode, forceManual);
+
+    const { nightMin, totalMin } = calcNightMinutesCivilTwilight(outDT, inDT, from, to, FIXED_STEP_MIN);
+
+    document.getElementById("kpiBlock").textContent = minutesToHHMM(totalMin);
+    document.getElementById("kpiBlock2").textContent = `${(totalMin/60).toFixed(2)} hrs`;
+
+    document.getElementById("kpiNight").textContent = minutesToHHMM(nightMin);
+    document.getElementById("kpiNight2").textContent = `${(nightMin/60).toFixed(2)} hrs`;
+
+    updateDecimalVisibility();
+
+    const fromLabel = fromRes ? `${fromRes.matched} ${fromRes.rec.icao}${fromRes.rec.iata ? " / "+fromRes.rec.iata : ""}` : (forceManual ? "Manual" : "Manual override");
+    const toLabel = toRes ? `${toRes.matched} ${toRes.rec.icao}${toRes.rec.iata ? " / "+toRes.rec.iata : ""}` : (forceManual ? "Manual" : "Manual override");
+
+    const detail =
+`Resolution mode: ${mode}
+FROM input: ${fromCode}  → ${fromLabel}
+TO input:   ${toCode}  → ${toLabel}
+
+FROM coords: lat=${from.lat.toFixed(5)}, lon=${from.lon.toFixed(5)}
+TO coords:   lat=${to.lat.toFixed(5)}, lon=${to.lon.toFixed(5)}
+
+OUT (UTC): ${outDT.toISOString()}
+IN  (UTC): ${inDT.toISOString()}
+Sampling step: ${FIXED_STEP_MIN} min (fixed)
+
+Rule:
+- FAA night time (civil twilight) approximated as Sun altitude <= -6° along the great-circle route.`;
+
+    document.getElementById("details").textContent = detail;
+    setStatus("OK ✅", "ok");
+
+    // Refresh info labels (after DB load)
+    renderAirportInfo("from", resolveAirport(fromCode));
+    renderAirportInfo("to", resolveAirport(toCode));
+  }
+
+  // Events
+  document.getElementById("showDecimal").addEventListener("change", updateDecimalVisibility);
+
+  document.getElementById("toggleManual").addEventListener("change", (e) => {
+    const box = document.getElementById("manualBox");
+    box.classList.toggle("hidden", !e.target.checked);
+  });
+
+  document.getElementById("btnSwap").addEventListener("click", () => {
+    const f = document.getElementById("fromCode");
+    const t = document.getElementById("toCode");
+    [f.value, t.value] = [t.value, f.value];
+    renderAirportInfo("from", resolveAirport(f.value));
+    renderAirportInfo("to", resolveAirport(t.value));
+  });
+
+  document.getElementById("btnToday").addEventListener("click", () => {
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth()+1).padStart(2,"0");
+    const dd = String(now.getUTCDate()).padStart(2,"0");
+    const d = `${yyyy}-${mm}-${dd}`;
+    document.getElementById("outDate").value = d;
+    document.getElementById("inDate").value = d;
+    setStatus("Filled OUT/IN dates with today's UTC date.", "muted");
+  });
+
+  document.getElementById("btnCalc").addEventListener("click", async () => {
+    try {
+      await calculate(false);
+    } catch (err) {
+      setStatus(err.message || String(err), "err");
+      document.getElementById("kpiBlock").textContent = "—";
+      document.getElementById("kpiNight").textContent = "—";
+      document.getElementById("kpiBlock2").textContent = "";
+      document.getElementById("kpiNight2").textContent = "";
+      document.getElementById("details").textContent = "";
+      updateDecimalVisibility();
+    }
+  });
+
+  document.getElementById("btnRecalcManual").addEventListener("click", async () => {
+    try {
+      await calculate(true);
+    } catch (err) {
+      setStatus(err.message || String(err), "err");
+    }
+  });
+
+  // Live info updates (after DB loads, these will become useful)
+  document.getElementById("fromCode").addEventListener("input", () => renderAirportInfo("from", resolveAirport(document.getElementById("fromCode").value)));
+  document.getElementById("toCode").addEventListener("input", () => renderAirportInfo("to", resolveAirport(document.getElementById("toCode").value)));
+
+  // init dates to today UTC + initial visibility
+  (function init(){
+    const now = new Date();
+    const yyyy = now.getUTCFullYear();
+    const mm = String(now.getUTCMonth()+1).padStart(2,"0");
+    const dd = String(now.getUTCDate()).padStart(2,"0");
+    const d = `${yyyy}-${mm}-${dd}`;
+    document.getElementById("outDate").value = d;
+    document.getElementById("inDate").value = d;
+    updateDecimalVisibility();
+    renderAirportInfo("from", null);
+    renderAirportInfo("to", null);
+  })();
+</script>
+</body>
+</html>
