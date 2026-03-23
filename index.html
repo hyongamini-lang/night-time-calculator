@@ -46,6 +46,61 @@
       input, select, button { font-size: 16px; } /* avoid iOS zoom on focus */
       .kpi .v { font-size: 22px; }
     }
+    /* Prevent iPhone Safari form controls from overflowing */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+input,
+select,
+textarea,
+button {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  display: block;
+  font: inherit;
+}
+
+.form-card,
+.inputs-card,
+.result-card,
+.section-card,
+.card {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.field,
+.form-group,
+.input-group {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea,
+  button {
+    width: 100%;
+    max-width: 100%;
+  }
+}
     </style>
 </head>
 
